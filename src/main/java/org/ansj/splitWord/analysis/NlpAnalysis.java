@@ -2,12 +2,14 @@ package org.ansj.splitWord.analysis;
 
 import java.io.Reader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import org.ansj.app.crf.SplitWord;
 import org.ansj.dic.LearnTool;
 import org.ansj.domain.NewWord;
 import org.ansj.domain.Term;
+import org.ansj.domain.TermNatures;
 import org.ansj.library.DATDictionary;
 import org.ansj.library.NatureLibrary;
 import org.ansj.recognition.NatureRecognition;
@@ -20,6 +22,7 @@ import org.ansj.util.Graph;
 import org.ansj.util.MyStaticValue;
 import org.ansj.util.NameFix;
 import org.nlpcn.commons.lang.tire.domain.Forest;
+import org.nlpcn.commons.lang.util.MapCount;
 import org.nlpcn.commons.lang.util.WordAlert;
 
 /**
@@ -32,6 +35,8 @@ public class NlpAnalysis extends Analysis {
 
 	private LearnTool learn = null;
 
+	private static final String TAB = "\t";
+
 	private static final SplitWord DEFAULT_SLITWORD = MyStaticValue.getCRFSplitWord();
 
 	@Override
@@ -41,8 +46,38 @@ public class NlpAnalysis extends Analysis {
 		Merger merger = new Merger() {
 			@Override
 			public List<Term> merger() {
-				// TODO Auto-generated method stub
-				graph.walkPath();
+
+				if (learn == null) {
+					learn = new LearnTool();
+				}
+				learn.learn(graph, DEFAULT_SLITWORD);
+
+				MapCount<String> mc = null;
+				if (DEFAULT_SLITWORD != null) {
+
+					mc = new MapCount<String>();
+
+					// 通过crf分词
+					List<String> words = DEFAULT_SLITWORD.cut(graph.chars);
+
+					String temp = null;
+
+					for (String word : words) {
+
+						if (temp != null) {
+							mc.add(temp + TAB + word);
+						}
+						temp = word;
+
+						TermNatures termNatures = NatureRecognition.getTermNatures(word);
+
+						if (word.length() < 2 || termNatures != null || isRuleWord(word)) {
+							continue;
+						}
+						learn.addTerm(new NewWord(word, NatureLibrary.getNature("nw")));
+					}
+				}
+				graph.walkPath(mc.get());
 
 				// 数字发现
 				if (graph.hasNum) {
@@ -51,27 +86,9 @@ public class NlpAnalysis extends Analysis {
 
 				// 词性标注
 				List<Term> result = getResult();
-				new NatureRecognition(result).recognition();
 
-				if (learn == null) {
-					learn = new LearnTool();
-				}
-				learn.learn(graph, DEFAULT_SLITWORD);
-
-				if (DEFAULT_SLITWORD != null) {
-
-					// 通过crf分词
-					List<String> words = DEFAULT_SLITWORD.cut(graph.chars);
-
-					for (String word : words) {
-						if (word.length() < 2 || DATDictionary.isInSystemDic(word) || isRuleWord(word)) {
-							continue;
-						}
-						learn.addTerm(new NewWord(word, NatureLibrary.getNature("nw")));
-					}
-				}
 				// 用户自定义词典的识别
-				new UserDefineRecognition(graph.terms, forests).recognition();
+				new UserDefineRecognition(graph.terms, 2, forests).recognition();
 				graph.rmLittlePath();
 				graph.walkPathByScore();
 
