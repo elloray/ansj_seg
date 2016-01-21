@@ -41,7 +41,7 @@ public class TermUtil {
 	}
 
 	/**
-	 * 将一个term插入到链表中的对应位置中, 如果这个term已经存在参照type type 0.跳过 1. 替换 2.累积分值 保证顺序,由小到大
+	 * 将一个term插入到链表中的对应位置中, 如果这个term已经存在参照type type 0.跳过 1. 替换 2.累积分值 保证顺序,由大到小
 	 * 
 	 * @param terms
 	 * @param term
@@ -65,6 +65,12 @@ public class TermUtil {
 				self.score(self.score() + term.score());
 				self.selfScore(self.selfScore() + term.selfScore());
 			}
+			return;
+		}
+		
+		if(self.getName().length() > len){
+			term.setNext(self) ;
+			terms[term.getOffe()] = term;
 			return;
 		}
 

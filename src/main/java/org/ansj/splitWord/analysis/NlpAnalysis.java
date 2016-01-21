@@ -2,16 +2,18 @@ package org.ansj.splitWord.analysis;
 
 import java.io.Reader;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 import org.ansj.app.crf.SplitWord;
 import org.ansj.dic.LearnTool;
+import org.ansj.domain.AnsjItem;
+import org.ansj.domain.Nature;
 import org.ansj.domain.NewWord;
 import org.ansj.domain.Term;
 import org.ansj.domain.TermNatures;
 import org.ansj.library.DATDictionary;
-import org.ansj.library.NatureLibrary;
+import org.ansj.recognition.AsianPersonRecognition;
+import org.ansj.recognition.ForeignPersonRecognition;
 import org.ansj.recognition.NatureRecognition;
 import org.ansj.recognition.NewWordRecognition;
 import org.ansj.recognition.NumRecognition;
@@ -21,6 +23,7 @@ import org.ansj.util.AnsjReader;
 import org.ansj.util.Graph;
 import org.ansj.util.MyStaticValue;
 import org.ansj.util.NameFix;
+import org.ansj.util.TermUtil;
 import org.nlpcn.commons.lang.tire.domain.Forest;
 import org.nlpcn.commons.lang.util.MapCount;
 import org.nlpcn.commons.lang.util.WordAlert;
@@ -36,6 +39,8 @@ public class NlpAnalysis extends Analysis {
 	private LearnTool learn = null;
 
 	private static final String TAB = "\t";
+	
+	private static final int CRF_WEIGHT = 6 ;
 
 	private static final SplitWord DEFAULT_SLITWORD = MyStaticValue.getCRFSplitWord();
 
@@ -50,33 +55,74 @@ public class NlpAnalysis extends Analysis {
 				if (learn == null) {
 					learn = new LearnTool();
 				}
+				
+				graph.walkPath();
+
 				learn.learn(graph, DEFAULT_SLITWORD);
 
-				MapCount<String> mc = null;
-				if (DEFAULT_SLITWORD != null) {
+				// 姓名识别
+				if (graph.hasPerson && MyStaticValue.isNameRecognition) {
+					// 亚洲人名识别
+					new AsianPersonRecognition(graph.terms).recognition();
+					graph.walkPathByScore();
+					NameFix.nameAmbiguity(graph.terms);
+					// 外国人名识别
+					new ForeignPersonRecognition(graph.terms).recognition();
+					graph.walkPathByScore();
+				}
 
-					mc = new MapCount<String>();
+				MapCount<String> mc = new MapCount<String>();
+				if (DEFAULT_SLITWORD != null) {
 
 					// 通过crf分词
 					List<String> words = DEFAULT_SLITWORD.cut(graph.chars);
 
 					String temp = null;
+					TermNatures tempTermNatures = null;
+					int tempOff = 0;
 
 					for (String word : words) {
 
-						if (temp != null) {
-							mc.add(temp + TAB + word);
+						AnsjItem item = DATDictionary.getItem(word);
+						Term term = null;
+						if (item != AnsjItem.NULL) {
+							term = new Term(word, tempOff, DATDictionary.getItem(word));
+						} else {
+							TermNatures termNatures = NatureRecognition.getTermNatures(word);
+							if (termNatures != TermNatures.NULL) {
+								term = new Term(word, tempOff, termNatures);
+							} else {
+								term = new Term(word, tempOff, TermNatures.NW);
+							}
 						}
+
+						TermUtil.insertTerm(graph.terms, term, 2);
+
+						tempOff += word.length();
+
+						// 对于非词典中的词持有保守态度
+						if (temp != null) {
+							if (tempTermNatures != TermNatures.NW && term.termNatures() != TermNatures.NW) {
+								mc.add(temp + TAB + word, CRF_WEIGHT);
+							}
+						} else if (term.termNatures() != TermNatures.NW) {
+							mc.add("始##始" + TAB + word, CRF_WEIGHT);
+						}
+
 						temp = word;
+						tempTermNatures = term.termNatures();
 
-						TermNatures termNatures = NatureRecognition.getTermNatures(word);
-
-						if (word.length() < 2 || termNatures != null || isRuleWord(word)) {
+						if (word.length() < 2 || isRuleWord(word)) {
 							continue;
 						}
-						learn.addTerm(new NewWord(word, NatureLibrary.getNature("nw")));
+						learn.addTerm(new NewWord(word, Nature.NW));
+					}
+
+					if (tempTermNatures != TermNatures.NW) {
+						mc.add(temp + TAB + "末##末", CRF_WEIGHT);
 					}
 				}
+				
 				graph.walkPath(mc.get());
 
 				// 数字发现
@@ -95,9 +141,6 @@ public class NlpAnalysis extends Analysis {
 				// 进行新词发现
 				new NewWordRecognition(graph.terms, learn).recognition();
 				graph.walkPathByScore();
-
-				// 修复人名左右连接
-				NameFix.nameAmbiguity(graph.terms);
 
 				// 优化后重新获得最优路径
 				result = getResult();
