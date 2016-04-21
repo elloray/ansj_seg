@@ -8,19 +8,30 @@ import java.util.List;
 import java.util.Set;
 
 import org.ansj.lucene.util.AnsjTokenizer;
+import org.ansj.splitWord.analysis.DicAnalysis;
 import org.ansj.splitWord.analysis.IndexAnalysis;
 import org.ansj.splitWord.analysis.ToAnalysis;
-import org.ansj.splitWord.analysis.UserDefineAnalysis;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.Tokenizer;
 import org.nlpcn.commons.lang.util.IOUtil;
 import org.nlpcn.commons.lang.util.StringUtil;
 
 public class AnsjAnalyzer extends Analyzer {
+
+	/**
+	 * dic equals user , query equals to
+	 * 
+	 * @author ansj
+	 *
+	 */
+	public static enum TYPE {
+		index, query, to, dic, user, search
+	}
+
 	/** 自定义停用词 */
 	private Set<String> filter;
 	/** 是否查询分词 */
-	private String type;
+	private TYPE type;
 
 	/**
 	 * @param filter
@@ -28,21 +39,22 @@ public class AnsjAnalyzer extends Analyzer {
 	 * @param pstemming
 	 *            是否分析词干
 	 */
-	public AnsjAnalyzer(String type, Set<String> filter) {
+	public AnsjAnalyzer(TYPE type, Set<String> filter) {
 		this.type = type;
 		this.filter = filter;
 	}
 
-	public AnsjAnalyzer(String type, String stopwordsDir) {
+	public AnsjAnalyzer(TYPE type, String stopwordsDir) {
 		this.type = type;
 		this.filter = filter(stopwordsDir);
 	}
 
-	public AnsjAnalyzer(String type) {
+	public AnsjAnalyzer(TYPE type) {
 		this.type = type;
 	}
-	
-	public AnsjAnalyzer(){}
+
+	public AnsjAnalyzer() {
+	}
 
 	private Set<String> filter(String stopwordsDir) {
 		if (StringUtil.isBlank(stopwordsDir)) {
@@ -63,13 +75,39 @@ public class AnsjAnalyzer extends Analyzer {
 		BufferedReader reader = new BufferedReader(new StringReader(text));
 		Tokenizer tokenizer = null;
 
-		if ("user".equalsIgnoreCase(type)) {
-			tokenizer = new AnsjTokenizer(new UserDefineAnalysis(reader), filter);
-		} else if ("index".equalsIgnoreCase(type)) {
+		tokenizer = getTokenizer(reader, this.type, this.filter);
+		return new TokenStreamComponents(tokenizer);
+	}
+
+	/**
+	 * 获得一个tokenizer
+	 * 
+	 * @param reader
+	 * @param type
+	 * @param filter
+	 * @return
+	 */
+	public static Tokenizer getTokenizer(BufferedReader reader, TYPE type, Set<String> filter) {
+		Tokenizer tokenizer;
+
+		switch (type) {
+		case index:
 			tokenizer = new AnsjTokenizer(new IndexAnalysis(reader), filter);
-		} else {
+			break;
+		case dic:
+		case user:
+			tokenizer = new AnsjTokenizer(new DicAnalysis(reader), filter);
+			break;
+
+		case to:
+		case query:
+		case search:
+			tokenizer = new AnsjTokenizer(new ToAnalysis(reader), filter);
+			break;
+		default:
 			tokenizer = new AnsjTokenizer(new ToAnalysis(reader), filter);
 		}
-		return new TokenStreamComponents(tokenizer);
+
+		return tokenizer;
 	}
 }
